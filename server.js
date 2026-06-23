@@ -154,11 +154,12 @@ app.post("/webhook", async (req, res) => {
     console.log(`${tag} ${type.padEnd(20)} — ${reason}`);
 
     if (allow) {
-      console.log("Parsed payload:", JSON.stringify(parsed, null, 2));
-      console.log("Raw payload:", req.rawBody);
+      const discordPayload = {
+        content: reason // or build an embed if you want richer formatting
+      };
 
-      // Forward the *original* body, not the parsed object
-      await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
+      console.log("Forwarding to Discord:", JSON.stringify(discordPayload, null, 2));
+      await forwardToDiscord(req, discordPayload, cfg?.sendScreenshot ?? false);
     }
 
     return res.status(200).send(allow ? `Forwarded: ${reason}` : `Skipped: ${reason}`);
