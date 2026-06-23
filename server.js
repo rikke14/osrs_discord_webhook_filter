@@ -16,19 +16,19 @@ const CONFIG = {
   COLLECTION: {
     enabled:        true,
     minValue:       1_000_000,
-    sendScreenshot: false,
+    sendScreenshot: true,
   },
 
   PET: {
     enabled:        true,
     duplicates:     false,
-    sendScreenshot: false,
+    sendScreenshot: true,
   },
 
   LOOT: {
     enabled:        true,
     minValue:       500_000,
-    sendScreenshot: false,
+    sendScreenshot: true,
   },
 
   CLUE: {
@@ -124,20 +124,8 @@ if (!DISCORD_WEBHOOK_URL) {
   process.exit(1);
 }
 
-// Middleware: capture raw body + parse JSON/multipart
-app.use((req, res, next) => {
-  let rawData = "";
-  req.on("data", chunk => { rawData += chunk; });
-  req.on("end", () => {
-    req.rawBody = rawData; // untouched JSON string
-    try {
-      req.body = JSON.parse(rawData); // parsed for filtering
-    } catch {
-      req.body = null;
-    }
-    next();
-  });
-});
+app.use(express.json()); // handles application/json
+app.use(upload.single("file")); // handles multipart/form-data
 
 
 // Webhook endpoint
@@ -153,14 +141,13 @@ app.post("/webhook", async (req, res) => {
     console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason}`);
 
     if (allow) {
-      // If multipart, forward payload_json + file
       const ct = req.headers["content-type"] || "";
       if (ct.includes("multipart/form-data")) {
-        console.log("Forwarding multipart payload to Discord");
+        console.log("Forwarding multipart payload to Discord:", req.body.payload_json);
         await forwardToDiscord(req, req.body.payload_json, cfg?.sendScreenshot ?? false);
       } else {
-        console.log("Forwarding JSON payload to Discord");
-        await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
+        console.log("Forwarding JSON payload to Discord:", req.body);
+        await forwardToDiscord(req, JSON.stringify(req.body), cfg?.sendScreenshot ?? false);
       }
     }
 
