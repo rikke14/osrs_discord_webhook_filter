@@ -128,15 +128,17 @@ if (!DISCORD_WEBHOOK_URL) {
 app.use((req, res, next) => {
   let rawData = "";
   req.on("data", chunk => { rawData += chunk; });
-  req.on("end", () => { req.rawBody = rawData; });
-
-  const ct = req.headers["content-type"] || "";
-  if (ct.includes("multipart/form-data")) {
-    upload.single("file")(req, res, next);
-  } else {
-    express.json()(req, res, next);
-  }
+  req.on("end", () => {
+    req.rawBody = rawData; // untouched JSON string
+    try {
+      req.body = JSON.parse(rawData); // parsed for filtering
+    } catch {
+      req.body = null;
+    }
+    next();
+  });
 });
+
 
 // Webhook endpoint
 app.post("/webhook", async (req, res) => {
@@ -155,10 +157,7 @@ app.post("/webhook", async (req, res) => {
     console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason}`);
 
     if (allow) {
-      console.log("Parsed payload:", JSON.stringify(parsed, null, 2));
-      console.log("Forwarding raw payload to Discord:", req.rawBody);
-
-      // Forward the untouched raw body (includes "content")
+      console.log("Forwarding to Discord:", req.rawBody);
       await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
     }
 
