@@ -15,7 +15,7 @@ const CONFIG = {
 
   COLLECTION: {
     enabled:        true,
-    minValue:       1_000,
+    minValue:       1_000_000,
     sendScreenshot: true,
   },
 
@@ -27,7 +27,7 @@ const CONFIG = {
 
   LOOT: {
     enabled:        true,
-    minValue:       1_000,
+    minValue:       25_000_000,
     sendScreenshot: true,
   },
 
