@@ -126,12 +126,11 @@ if (!DISCORD_WEBHOOK_URL) {
 
 // Middleware: capture raw body + parse JSON/multipart
 app.use((req, res, next) => {
-  const ct = req.headers["content-type"] || "";
   let rawData = "";
-
   req.on("data", chunk => { rawData += chunk; });
   req.on("end", () => { req.rawBody = rawData; });
 
+  const ct = req.headers["content-type"] || "";
   if (ct.includes("multipart/form-data")) {
     upload.single("file")(req, res, next);
   } else {
@@ -142,7 +141,7 @@ app.use((req, res, next) => {
 // Webhook endpoint
 app.post("/webhook", async (req, res) => {
   try {
-    // Parse only for filtering
+    console.log("Received webhook request:", req);
     const parsed = parsePayload(req);
     if (!parsed) return res.status(400).send("Invalid payload");
 
@@ -150,20 +149,17 @@ app.post("/webhook", async (req, res) => {
     const cfg                  = CONFIG[type];
     const { allow, reason }    = shouldForward(type, extra, cfg);
 
-    const tag = allow ? "[ALLOW]" : "[SKIP] ";
-    console.log(`${tag} ${type.padEnd(20)} — ${reason}`);
+    console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason}`);
 
     if (allow) {
-      const discordPayload = {
-        content: reason // or build an embed if you want richer formatting
-      };
+      console.log("Parsed payload:", JSON.stringify(parsed, null, 2));
+      console.log("Forwarding raw payload to Discord:", req.rawBody);
 
-      console.log("Forwarding to Discord:", JSON.stringify(discordPayload, null, 2));
-      await forwardToDiscord(req, discordPayload, cfg?.sendScreenshot ?? false);
+      // Forward the untouched raw body (includes "content")
+      await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
     }
 
     return res.status(200).send(allow ? `Forwarded: ${reason}` : `Skipped: ${reason}`);
-
   } catch (err) {
     console.error("Error processing webhook:", err);
     return res.status(500).send("Internal server error");
@@ -326,9 +322,9 @@ async function forwardToDiscord(req, rawBody, sendScreenshot = false) {
     await fetch(DISCORD_WEBHOOK_URL, { method: "POST", body: form });
   } else {
     await fetch(DISCORD_WEBHOOK_URL, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    rawBody, // forward untouched
+      body: rawBody // untouched string, includes "content"
     });
   }
 }
