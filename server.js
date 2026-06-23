@@ -143,10 +143,6 @@ app.use((req, res, next) => {
 // Webhook endpoint
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("Headers:", req.headers);
-    console.log("Raw body string:", req.rawBody);
-    console.log("Parsed body object:", JSON.stringify(req.body, null, 2));
-
     const parsed = parsePayload(req);
     if (!parsed) return res.status(400).send("Invalid payload");
 
@@ -157,8 +153,15 @@ app.post("/webhook", async (req, res) => {
     console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason}`);
 
     if (allow) {
-      console.log("Forwarding to Discord:", req.rawBody);
-      await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
+      // If multipart, forward payload_json + file
+      const ct = req.headers["content-type"] || "";
+      if (ct.includes("multipart/form-data")) {
+        console.log("Forwarding multipart payload to Discord");
+        await forwardToDiscord(req, req.body.payload_json, cfg?.sendScreenshot ?? false);
+      } else {
+        console.log("Forwarding JSON payload to Discord");
+        await forwardToDiscord(req, req.rawBody, cfg?.sendScreenshot ?? false);
+      }
     }
 
     return res.status(200).send(allow ? `Forwarded: ${reason}` : `Skipped: ${reason}`);
@@ -167,6 +170,7 @@ app.post("/webhook", async (req, res) => {
     return res.status(500).send("Internal server error");
   }
 });
+
 
 app.get("/health", (_req, res) => res.send("OK"));
 
@@ -309,13 +313,13 @@ function parsePayload(req) {
   return req.body ?? null;
 }
 
-async function forwardToDiscord(req, rawBody, sendScreenshot = false) {
+async function forwardToDiscord(req, payloadJson, sendScreenshot = false) {
   const hasScreenshot = !!req.file && sendScreenshot;
 
   if (hasScreenshot) {
     const { FormData, Blob } = await import("node-fetch");
     const form = new FormData();
-    form.append("payload_json", rawBody, { contentType: "application/json" });
+    form.append("payload_json", payloadJson, { contentType: "application/json" });
     form.append(
       "file",
       new Blob([req.file.buffer], { type: req.file.mimetype }),
@@ -326,10 +330,11 @@ async function forwardToDiscord(req, rawBody, sendScreenshot = false) {
     await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: rawBody // untouched string, includes "content"
+      body: payloadJson // untouched JSON string
     });
   }
 }
+
 
 function gp(value) {
   return `${Number(value).toLocaleString()} gp`;
