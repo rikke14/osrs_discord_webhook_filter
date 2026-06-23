@@ -141,7 +141,10 @@ app.use((req, res, next) => {
 // Webhook endpoint
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("Received webhook request:", req);
+    console.log("Headers:", req.headers);
+    console.log("Raw body string:", req.rawBody);
+    console.log("Parsed body object:", JSON.stringify(req.body, null, 2));
+
     const parsed = parsePayload(req);
     if (!parsed) return res.status(400).send("Invalid payload");
 
