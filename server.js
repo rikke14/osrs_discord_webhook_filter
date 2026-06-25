@@ -8,8 +8,9 @@ const upload = multer();
 //  CONFIG — edit everything in this block to suit your clan
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const PORT = process.env.PORT || 3000;
+const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL;
+const CLAN_NAME            = process.env.CLAN_NAME?.trim() || null;
+const PORT                 = process.env.PORT || 3000;
 
 const CONFIG = {
 
@@ -124,6 +125,12 @@ if (!DISCORD_WEBHOOK_URL) {
   process.exit(1);
 }
 
+if (CLAN_NAME) {
+  console.log(`Clan filter enabled — only forwarding events from clan: "${CLAN_NAME}"`);
+} else {
+  console.log("CLAN_NAME not set — clan filter disabled, all players will be forwarded.");
+}
+
 app.use(express.json()); // handles application/json
 app.use(upload.single("file")); // handles multipart/form-data
 
@@ -133,6 +140,16 @@ app.post("/webhook", async (req, res) => {
   try {
     const parsed = parsePayload(req);
     if (!parsed) return res.status(400).send("Invalid payload");
+
+    // ── Clan filter ──────────────────────────────────────────────────────────
+    if (CLAN_NAME) {
+      const incoming = parsed.clanName?.trim() ?? "";
+      if (incoming.toLowerCase() !== CLAN_NAME.toLowerCase()) {
+        console.log(`[SKIP] "${parsed.playerName}" is in clan "${incoming || "(none)"}" — expected "${CLAN_NAME}".`);
+        return res.status(200).send("Skipped: player not in clan");
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const { type, extra = {} } = parsed;
     const cfg                  = CONFIG[type];

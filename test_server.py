@@ -2,7 +2,83 @@
 Dink filter server — pytest suite
 Tests every notification type. Value-filtered types get a low (50k) and high (5000k) test.
 Run with: pytest test_server.py -v
-Requires the server running at SERVER_URL (default: http://localhost:3000)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ LOCAL SETUP — run the filter server before running these tests
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Prerequisites:
+  - Node.js 18+  →  https://nodejs.org
+  - Python 3.8+  →  https://python.org
+  - pytest + requests:
+      pip install pytest requests        (Linux/macOS)
+      pip install pytest requests        (Windows — same command)
+
+── Linux / macOS ──────────────────────────────────────────────
+
+  Terminal 1 — start the server:
+    cd /path/to/osrs_discord_webhook_filter
+    npm install
+    DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/fake/url" npm start
+
+  To also test the clan filter, add CLAN_NAME:
+    DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/fake/url" CLAN_NAME="Duck Trumps" npm start
+
+  Terminal 2 — run the tests:
+    pytest test_server.py -v
+
+  To test against a clan-filtered server, also set DINK_CLAN_NAME:
+    DINK_CLAN_NAME="Duck Trumps" pytest test_server.py -v
+
+── Windows (Command Prompt) ───────────────────────────────────
+
+  Terminal 1 — start the server:
+    cd C:\\path\\to\\osrs_discord_webhook_filter
+    npm install
+    set DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/fake/url
+    npm start
+
+  To also test the clan filter:
+    set CLAN_NAME=Duck Trumps
+    npm start
+
+  Terminal 2 — run the tests:
+    pytest test_server.py -v
+
+  To test against a clan-filtered server:
+    set DINK_CLAN_NAME=Duck Trumps
+    pytest test_server.py -v
+
+── Windows (PowerShell) ───────────────────────────────────────
+
+  Terminal 1 — start the server:
+    cd C:\\path\\to\\osrs_discord_webhook_filter
+    npm install
+    $env:DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/fake/url"
+    npm start
+
+  To also test the clan filter:
+    $env:CLAN_NAME = "Duck Trumps"
+    npm start
+
+  Terminal 2 — run the tests:
+    pytest test_server.py -v
+
+  To test against a clan-filtered server:
+    $env:DINK_CLAN_NAME = "Duck Trumps"
+    pytest test_server.py -v
+
+── Notes ───────────────────────────────────────────────────────
+
+  - The DISCORD_WEBHOOK_URL can be a fake URL for testing — the server
+    will attempt to forward but that's fine; what we're testing is whether
+    the filter allows or blocks each event before it gets that far.
+  - To test against a remote server (e.g. Railway), set DINK_FILTER_URL:
+      DINK_FILTER_URL=https://your-app.railway.app pytest test_server.py -v
+  - DINK_CLAN_NAME should match whatever CLAN_NAME you set on the server.
+    If not set, clan filter tests are skipped.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 import pytest
@@ -12,8 +88,11 @@ import os
 SERVER_URL = os.environ.get("DINK_FILTER_URL", "http://localhost:3000")
 WEBHOOK    = f"{SERVER_URL}/webhook"
 
-LOW_VALUE  =   50_000   # should be blocked for value-filtered types
-HIGH_VALUE = 5_000_000  # should pass for value-filtered types
+# If set, clan filter tests run and use this name. Must match the server's CLAN_NAME.
+CLAN_NAME  = os.environ.get("DINK_CLAN_NAME", "").strip() or None
+
+LOW_VALUE  =    50_000   # should be blocked for value-filtered types
+HIGH_VALUE = 50_000_000   # should pass for value-filtered types
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -29,6 +108,15 @@ def assert_skipped(resp: requests.Response):
     assert resp.status_code == 200, resp.text
     assert resp.text.startswith("Skipped"), f"Expected skipped, got: {resp.text}"
 
+def player(name: str = "TestIron", clan: str = None) -> dict:
+    """Base player fields. Uses CLAN_NAME env var if no clan is passed."""
+    p = {"playerName": name}
+    if clan is not None:
+        p["clanName"] = clan
+    elif CLAN_NAME:
+        p["clanName"] = CLAN_NAME
+    return p
+
 
 # ── health ────────────────────────────────────────────────────────────────────
 
@@ -38,12 +126,40 @@ def test_health():
     assert resp.text == "OK"
 
 
+# ── CLAN FILTER ───────────────────────────────────────────────────────────────
+
+@pytest.mark.skipif(CLAN_NAME is None, reason="DINK_CLAN_NAME not set — skipping clan filter tests")
+def test_clan_filter_correct_clan_forwards():
+    """Event from the correct clan should pass through."""
+    resp = post({**player(clan=CLAN_NAME), "type": "PET", "extra": {"petName": "Ikkle hydra", "duplicate": False}})
+    assert_forwarded(resp)
+
+@pytest.mark.skipif(CLAN_NAME is None, reason="DINK_CLAN_NAME not set — skipping clan filter tests")
+def test_clan_filter_wrong_clan_skipped():
+    """Event from a different clan should be blocked."""
+    resp = post({**player(clan="Some Other Clan"), "type": "PET", "extra": {"petName": "Ikkle hydra", "duplicate": False}})
+    assert_skipped(resp)
+
+@pytest.mark.skipif(CLAN_NAME is None, reason="DINK_CLAN_NAME not set — skipping clan filter tests")
+def test_clan_filter_case_insensitive():
+    """Clan name check should be case-insensitive."""
+    resp = post({**player(clan=CLAN_NAME.upper()), "type": "PET", "extra": {"petName": "Ikkle hydra", "duplicate": False}})
+    assert_forwarded(resp)
+
+@pytest.mark.skipif(CLAN_NAME is None, reason="DINK_CLAN_NAME not set — skipping clan filter tests")
+def test_clan_filter_no_clan_name_skipped():
+    """Event with no clanName field should be blocked when filter is active."""
+    payload = {"type": "PET", "playerName": "TestIron", "extra": {"petName": "Ikkle hydra", "duplicate": False}}
+    resp = post(payload)
+    assert_skipped(resp)
+
+
 # ── COLLECTION ────────────────────────────────────────────────────────────────
 
 def test_collection_high_value():
     resp = post({
+        **player(),
         "type": "COLLECTION",
-        "playerName": "TestIron",
         "extra": {
             "itemName": "Abyssal whip",
             "itemId": 4151,
@@ -56,8 +172,8 @@ def test_collection_high_value():
 
 def test_collection_low_value():
     resp = post({
+        **player(),
         "type": "COLLECTION",
-        "playerName": "TestIron",
         "extra": {
             "itemName": "Bronze arrow",
             "itemId": 882,
@@ -73,8 +189,8 @@ def test_collection_low_value():
 
 def test_pet():
     resp = post({
+        **player(),
         "type": "PET",
-        "playerName": "TestIron",
         "extra": {
             "petName": "Ikkle hydra",
             "duplicate": False,
@@ -85,8 +201,8 @@ def test_pet():
 def test_pet_duplicate():
     """Duplicate pets should not forward."""
     resp = post({
+        **player(),
         "type": "PET",
-        "playerName": "TestIron",
         "extra": {
             "petName": "Ikkle hydra",
             "duplicate": True,
@@ -99,8 +215,8 @@ def test_pet_duplicate():
 
 def _loot_payload(total_value: int) -> dict:
     return {
+        **player(),
         "type": "LOOT",
-        "playerName": "TestIron",
         "extra": {
             "source": "Zulrah",
             "items": [
@@ -121,8 +237,8 @@ def test_loot_low_value():
 
 def _clue_payload(tier: str, total_value: int) -> dict:
     return {
+        **player(),
         "type": "CLUE",
-        "playerName": "TestIron",
         "extra": {
             "clueType": tier,
             "numberCompleted": 42,
@@ -144,8 +260,8 @@ def test_clue_disabled_low_value():
 
 def _death_payload(value_lost: int, is_pvp: bool = False) -> dict:
     return {
+        **player(),
         "type": "DEATH",
-        "playerName": "TestIron",
         "extra": {
             "valueLost": value_lost,
             "isPvp": is_pvp,
@@ -169,8 +285,8 @@ def test_death_disabled_low_value():
 
 def _level_payload(skill: str, level: int) -> dict:
     return {
+        **player(),
         "type": "LEVEL",
-        "playerName": "TestIron",
         "extra": {
             "levelledSkills": {skill: level},
             "allSkills": {skill: level},
@@ -190,8 +306,8 @@ def test_level_disabled_50():
 
 def _kc_payload(boss: str, count: int, is_pb: bool = False) -> dict:
     return {
+        **player(),
         "type": "KILL_COUNT",
-        "playerName": "TestIron",
         "extra": {
             "bossName": boss,
             "count": count,
@@ -211,8 +327,8 @@ def test_kc_disabled_normal():
 
 def _slayer_payload(points: int) -> dict:
     return {
+        **player(),
         "type": "SLAYER",
-        "playerName": "TestIron",
         "extra": {
             "slayerTask": "Abyssal demons",
             "slayerCompleted": "200",
@@ -234,8 +350,8 @@ def test_slayer_disabled_low_points():
 
 def test_quest_disabled():
     resp = post({
+        **player(),
         "type": "QUEST",
-        "playerName": "TestIron",
         "extra": {
             "questName": "Dragon Slayer II",
             "completedQuests": 50,
@@ -252,8 +368,8 @@ def test_quest_disabled():
 
 def _ca_payload(tier: str) -> dict:
     return {
+        **player(),
         "type": "COMBAT_ACHIEVEMENT",
-        "playerName": "TestIron",
         "extra": {
             "tier": tier,
             "task": "Whisperer speed-runner (4 minutes)",
@@ -272,8 +388,8 @@ def test_combat_achievement_disabled_easy():
 
 def _diary_payload(difficulty: str) -> dict:
     return {
+        **player(),
         "type": "ACHIEVEMENT_DIARY",
-        "playerName": "TestIron",
         "extra": {
             "area": "Karamja",
             "difficulty": difficulty,
@@ -292,8 +408,8 @@ def test_diary_disabled_easy():
 
 def test_speedrun_disabled_pb():
     resp = post({
+        **player(),
         "type": "SPEEDRUN",
-        "playerName": "TestIron",
         "extra": {
             "questName": "Cook's Assistant",
             "isPersonalBest": True,
@@ -304,8 +420,8 @@ def test_speedrun_disabled_pb():
 
 def test_speedrun_disabled_normal():
     resp = post({
+        **player(),
         "type": "SPEEDRUN",
-        "playerName": "TestIron",
         "extra": {
             "questName": "Cook's Assistant",
             "isPersonalBest": False,
@@ -320,8 +436,8 @@ def test_speedrun_disabled_normal():
 
 def _ba_payload(total_value: int) -> dict:
     return {
+        **player(),
         "type": "BA_GAMBLE",
-        "playerName": "TestIron",
         "extra": {
             "items": [
                 {"id": 3486, "quantity": 1, "priceEach": total_value, "name": "Fighter torso"},
@@ -341,8 +457,8 @@ def test_ba_gamble_disabled_low_value():
 
 def test_grand_exchange_disabled():
     resp = post({
+        **player(),
         "type": "GRAND_EXCHANGE",
-        "playerName": "TestIron",
         "extra": {
             "item": {"id": 4151, "quantity": 1, "priceEach": HIGH_VALUE, "name": "Abyssal whip"},
             "status": "BOUGHT",
@@ -357,8 +473,8 @@ def test_grand_exchange_disabled():
 
 def test_trade_disabled():
     resp = post({
+        **player(),
         "type": "TRADE",
-        "playerName": "TestIron",
         "extra": {
             "counterparty": "SomePlayer",
             "receivedItems": [
@@ -375,8 +491,8 @@ def test_trade_disabled():
 
 def test_login_disabled():
     resp = post({
+        **player(),
         "type": "LOGIN",
-        "playerName": "TestIron",
         "extra": {},
     })
     assert_skipped(resp)
@@ -387,8 +503,8 @@ def test_login_disabled():
 
 def test_chat_disabled():
     resp = post({
+        **player(),
         "type": "CHAT",
-        "playerName": "TestIron",
         "extra": {
             "message": "Finally got the drop!",
             "sender": "TestIron",
@@ -403,8 +519,8 @@ def test_chat_disabled():
 def test_unknown_type_forwards_by_default():
     """Unknown types should be forwarded so nothing is silently lost."""
     resp = post({
+        **player(),
         "type": "SOME_FUTURE_TYPE",
-        "playerName": "TestIron",
         "extra": {},
     })
     assert_forwarded(resp)

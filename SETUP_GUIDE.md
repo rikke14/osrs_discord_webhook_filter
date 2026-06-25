@@ -13,8 +13,8 @@ RuneLite (Dink)  →  Your filter server  →  Discord
 | Type | Filter |
 |---|---|
 | **Collection Log** | GE value threshold (default: 1M gp) |
-| **Pet** | Always forwarded — no filter |
-| **Loot** | Total drop value threshold (default: 500k gp) |
+| **Pet** | Always forwarded — duplicates skipped by default |
+| **Loot** | Total drop value threshold (default: 25M gp) |
 | **Clue Scroll** | Tier allowlist + total reward value threshold |
 | **Death** | PvP-only toggle + minimum GP lost |
 | **Level** | Minimum level threshold (default: 99 only) |
@@ -30,42 +30,22 @@ RuneLite (Dink)  →  Your filter server  →  Discord
 
 ---
 
-## Step 1 — Get a server
+## Step 1 — Deploy to Railway
 
-You need somewhere to host this. A few easy options:
+1. Push the project files to a GitHub repository
+2. Go to [railway.app](https://railway.app), sign up, and click **New Project → Deploy from GitHub repo**
+3. Connect your repository — Railway auto-detects Node.js and runs `npm start`
+4. Go to your project **Settings → Variables** and add the environment variables below
+5. Railway gives you a public `https://` URL automatically under **Settings → Networking → Generate Domain**
 
-### Option A: Railway (recommended, free tier available)
-1. Go to [railway.app](https://railway.app) and sign up
-2. Push the project files to a GitHub repository
-3. Click **New Project → Deploy from GitHub repo** and connect it
-4. Railway auto-detects Node.js and runs `npm start`
-5. Go to your project **Settings → Variables** and add `DISCORD_WEBHOOK_URL`
-6. Railway gives you a public `https://` URL automatically
+### Environment variables
 
-### Option B: Fly.io (free tier)
-1. Install the Fly CLI: https://fly.io/docs/hands-on/install-flyctl/
-2. Run `fly launch` inside the project folder and follow the prompts
-3. Set your env var: `fly secrets set DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."`
-4. Deploy: `fly deploy`
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_WEBHOOK_URL` | **Yes** | The Discord webhook URL to forward events to |
+| `CLAN_NAME` | No | If set, only events from players in this exact clan are forwarded. Leave unset to allow everyone. |
 
-### Option C: Any VPS (DigitalOcean, Hetzner, etc.)
-```bash
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Clone/upload your project files, then:
-npm install
-
-# Install PM2 to keep the server running after logout
-npm install -g pm2
-DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." pm2 start server.js
-pm2 save
-pm2 startup
-
-# Open the port in your firewall (if using ufw)
-sudo ufw allow 3000
-```
+> **`CLAN_NAME` must match exactly** what appears in-game as your clan name (e.g. `Duck Trumps`). The check is case-insensitive, so capitalisation doesn't matter.
 
 ---
 
@@ -75,71 +55,44 @@ sudo ufw allow 3000
 2. Click the **gear icon** (Edit Channel) → **Integrations** → **Webhooks**
 3. Click **New Webhook**, give it a name (e.g. "OSRS Drops")
 4. Click **Copy Webhook URL**
-5. Set this as the `DISCORD_WEBHOOK_URL` environment variable on your server — **never put it directly in the code**
+5. Paste it as the `DISCORD_WEBHOOK_URL` variable in Railway — **never put it directly in the code**
 
 ---
 
-## Step 3 — Run locally first (optional but recommended)
-
-```bash
-# Install dependencies
-npm install
-
-# Set your webhook URL and start
-DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN" npm start
-```
-
-You should see output like:
-```
-Dink filter listening on port 3000
-Config summary:
-  COLLECTION             enabled=true
-  PET                    enabled=true
-  LOOT                   enabled=true
-  ...
-```
-
----
-
-## Step 4 — Configure Dink in RuneLite
+## Step 3 — Configure Dink in RuneLite
 
 Each player does this once:
 
 1. Open RuneLite → **Plugin Hub** → search **Dink** → install
 2. Open Dink settings (the wrench icon next to the plugin)
-3. Under **Primary Webhook URLs**, enter your server's URL:
+3. Under **Primary Webhook URLs**, enter your Railway server URL:
    ```
    https://your-app-name.railway.app/webhook
    ```
-   or if self-hosting:
-   ```
-   http://YOUR-SERVER-IP:3000/webhook
-   ```
 4. Enable whichever notifiers you want in Dink (Collection, Pet, Loot, etc.)
-5. **Important:** disable any value filtering inside Dink itself — let your server handle it, otherwise Dink may silently drop things before they even reach you
+5. **Important:** disable any value filtering inside Dink itself — let your server handle it, otherwise Dink may silently drop events before they even reach you
 
 > Players point Dink at **your server**, not at Discord. Your server decides what reaches Discord.
 
 ---
 
-## Step 5 — Customise the filters
+## Step 4 — Customise the filters
 
-All configuration is at the top of `server.js` in the `CONFIG` block. The comments explain each option. Examples:
+All configuration is at the top of `server.js` in the `CONFIG` block. Edit the values and push to GitHub — Railway will redeploy automatically.
 
-### Only notify on 99s AND 200M milestones
+### Only notify on 99s
 ```js
 LEVEL: {
   enabled:  true,
   minLevel: 99,
 },
 ```
-For 200M you'd need to also enable XP milestones in Dink and handle the `XP_MILESTONE` type separately.
 
 ### Only Hard/Elite/Master clues worth 1M+
 ```js
 CLUE: {
-  enabled:    true,
-  minValue:   1_000_000,
+  enabled:      true,
+  minValue:     1_000_000,
   allowedTiers: ["Hard", "Elite", "Master"],
 },
 ```
@@ -153,7 +106,7 @@ DEATH: {
 },
 ```
 
-### Kill count every 100 kills OR personal bests
+### Kill count every 100 kills, or on personal bests
 ```js
 KILL_COUNT: {
   enabled:          true,
@@ -164,43 +117,50 @@ KILL_COUNT: {
 
 ---
 
-## Step 6 — Test it
+## Step 5 — Test it
 
 ### Check the server is alive
 ```bash
-curl https://your-server-url/health
+curl https://your-app-name.railway.app/health
 # Returns: OK
 ```
 
 ### Simulate a collection log drop (above threshold — should forward)
 ```bash
-curl -X POST https://your-server-url/webhook \
+curl -X POST https://your-app-name.railway.app/webhook \
   -H "Content-Type: application/json" \
-  -d '{"type":"COLLECTION","playerName":"TestIron","extra":{"itemName":"Abyssal whip","itemId":4151,"price":2500000,"completedEntries":100,"totalEntries":1443}}'
+  -d '{"type":"COLLECTION","playerName":"TestIron","clanName":"Duck Trumps","extra":{"itemName":"Abyssal whip","itemId":4151,"price":2500000,"completedEntries":100,"totalEntries":1443}}'
 ```
 
 ### Simulate a cheap drop (below threshold — should be skipped)
 ```bash
-curl -X POST https://your-server-url/webhook \
+curl -X POST https://your-app-name.railway.app/webhook \
   -H "Content-Type: application/json" \
-  -d '{"type":"COLLECTION","playerName":"TestIron","extra":{"itemName":"Bronze arrow","itemId":882,"price":3,"completedEntries":101,"totalEntries":1443}}'
+  -d '{"type":"COLLECTION","playerName":"TestIron","clanName":"Duck Trumps","extra":{"itemName":"Bronze arrow","itemId":882,"price":3,"completedEntries":101,"totalEntries":1443}}'
 ```
 
-### Simulate a pet (always forwards)
+### Simulate a player from a different clan (should be skipped if CLAN_NAME is set)
 ```bash
-curl -X POST https://your-server-url/webhook \
+curl -X POST https://your-app-name.railway.app/webhook \
   -H "Content-Type: application/json" \
-  -d '{"type":"PET","playerName":"TestIron","extra":{"petName":"Ikkle hydra","duplicate":false}}'
+  -d '{"type":"PET","playerName":"SomeRando","clanName":"Other Clan","extra":{"petName":"Ikkle hydra","duplicate":false}}'
+```
+
+### Simulate a pet (always forwards if clan matches)
+```bash
+curl -X POST https://your-app-name.railway.app/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"type":"PET","playerName":"TestIron","clanName":"Duck Trumps","extra":{"petName":"Ikkle hydra","duplicate":false}}'
 ```
 
 ### Simulate a level up (99 Slayer)
 ```bash
-curl -X POST https://your-server-url/webhook \
+curl -X POST https://your-app-name.railway.app/webhook \
   -H "Content-Type: application/json" \
-  -d '{"type":"LEVEL","playerName":"TestIron","extra":{"levelledSkills":{"Slayer":99},"allSkills":{"Slayer":99}}}'
+  -d '{"type":"LEVEL","playerName":"TestIron","clanName":"Duck Trumps","extra":{"levelledSkills":{"Slayer":99},"allSkills":{"Slayer":99}}}'
 ```
 
-Check your server's console output — every request logs `[ALLOW]` or `[SKIP]` with the reason.
+Check Railway's **Deployments → View Logs** — every request logs `[ALLOW]` or `[SKIP]` with the reason.
 
 ---
 
@@ -208,9 +168,11 @@ Check your server's console output — every request logs `[ALLOW]` or `[SKIP]` 
 
 | Problem | Fix |
 |---|---|
-| Nothing appearing in Discord | Check `DISCORD_WEBHOOK_URL` is set correctly; check server console for errors |
-| Server not receiving from Dink | Check the URL in Dink settings matches your server exactly including `/webhook` |
-| Items above threshold not forwarding | Make sure Dink's own value filter isn't also filtering them out — set Dink's min value to 0 or 1 |
-| Pets not appearing | Confirm Pet notifier is enabled in Dink settings and `PET.enabled: true` in config |
+| Nothing appearing in Discord | Check `DISCORD_WEBHOOK_URL` is set correctly in Railway variables; check logs for errors |
+| Events being skipped with "player not in clan" | Check `CLAN_NAME` in Railway matches your exact in-game clan name |
+| Server not receiving from Dink | Check the URL in Dink settings matches your Railway URL exactly, including `/webhook` |
+| Items above threshold not forwarding | Make sure Dink's own value filter isn't also filtering — set Dink's min value to 0 or 1 |
+| Pets not appearing | Confirm Pet notifier is enabled in Dink and `PET.enabled: true` in config |
+| Duplicate pets being skipped | Set `PET.duplicates: true` in config |
 | Screenshots not forwarding | Enable "Send Screenshot" per-notifier in Dink settings |
-| Server crashes on start | Make sure `DISCORD_WEBHOOK_URL` env var is set before starting |
+| Server crashes on start | Make sure `DISCORD_WEBHOOK_URL` is set in Railway variables before deploying |
