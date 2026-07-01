@@ -16,7 +16,7 @@ const CONFIG = {
 
   COLLECTION: {
     enabled:        true,
-    minValue:       1_000_000,
+    minValue:       3_000_000,
     sendScreenshot: true,
   },
 
@@ -140,12 +140,12 @@ app.post("/webhook", async (req, res) => {
   try {
     const parsed = parsePayload(req);
     if (!parsed) return res.status(400).send("Invalid payload");
-
+    const playerName = parsed.playerName || "(unknown player)";
     // ── Clan filter ──────────────────────────────────────────────────────────
     if (CLAN_NAME) {
       const incoming = parsed.clanName?.trim() ?? "";
       if (incoming.toLowerCase() !== CLAN_NAME.toLowerCase()) {
-        console.log(`[SKIP] "${parsed.playerName}" is in clan "${incoming || "(none)"}" — expected "${CLAN_NAME}".`);
+        console.log(`[SKIP] "${playerName}" is in clan "${incoming || "(none)"}" — expected "${CLAN_NAME}".`);
         return res.status(200).send("Skipped: player not in clan");
       }
     }
@@ -155,7 +155,7 @@ app.post("/webhook", async (req, res) => {
     const cfg                  = CONFIG[type];
     const { allow, reason }    = shouldForward(type, extra, cfg);
 
-    console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason}`);
+    console.log(`${allow ? "[ALLOW]" : "[SKIP]"} ${type} — ${reason} (${playerName})`);
 
     if (allow) {
       const ct = req.headers["content-type"] || "";

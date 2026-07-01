@@ -12,7 +12,7 @@ RuneLite (Dink)  →  Your filter server  →  Discord
 
 | Type | Filter |
 |---|---|
-| **Collection Log** | GE value threshold (default: 1M gp) |
+| **Collection Log** | GE value threshold (default: 3M gp) |
 | **Pet** | Always forwarded — duplicates skipped by default |
 | **Loot** | Total drop value threshold (default: 25M gp) |
 | **Clue Scroll** | Tier allowlist + total reward value threshold |
